@@ -20,9 +20,17 @@ class FineUploader
 
     protected $uploadName;
 
-    function __construct()
+    // php.ini defaults
+    const DEFAULT_POST_MAX_SIZE = '8M';
+    const DEFAULT_UPLOAD_MAX_FILESIZE = '2M';
+
+    /**
+     * FineUploader constructor.
+     * @throws \Exception
+     */
+    public function __construct()
     {
-        $this->sizeLimit = $this->toBytes(ini_get('upload_max_filesize'));
+        $this->sizeLimit = $this->toBytes($this->iniGet('upload_max_filesize'));
     }
 
     /**
@@ -47,44 +55,12 @@ class FineUploader
         return $this->uploadName;
     }
 
-    public function combineChunks($uploadDirectory)
-    {
-        $uuid = $_POST['qquuid'];
-        $name = $this->getName();
-        $targetFolder = $this->chunksFolder . DIRECTORY_SEPARATOR . $uuid;
-        $totalParts = isset($_REQUEST['qqtotalparts']) ? (int)$_REQUEST['qqtotalparts'] : 1;
-
-        $target = join(DIRECTORY_SEPARATOR, array($uploadDirectory, $uuid, $name));
-        $this->uploadName = $name;
-
-        if (!file_exists($target)) {
-            mkdir(dirname($target));
-        }
-        $target = fopen($target, 'wb');
-
-        for ($i = 0; $i < $totalParts; $i++) {
-            $chunk = fopen($targetFolder . DIRECTORY_SEPARATOR . $i, "rb");
-            stream_copy_to_stream($chunk, $target);
-            fclose($chunk);
-        }
-
-        // Success
-        fclose($target);
-
-        for ($i = 0; $i < $totalParts; $i++) {
-            unlink($targetFolder . DIRECTORY_SEPARATOR . $i);
-        }
-
-        rmdir($targetFolder);
-
-        return array("success" => true, "uuid" => $uuid);
-    }
-
     /**
      * Process the upload.
      * @param string $uploadDirectory Target directory.
      * @param string $name Overwrites the name of the file.
      * @return array
+     * @throws \Exception
      */
     public function handleUpload($uploadDirectory, $name = null)
     {
@@ -96,8 +72,8 @@ class FineUploader
 
         // Check that the max upload size specified in class configuration does not
         // exceed size allowed by server config
-        if ($this->toBytes(ini_get('post_max_size')) < $this->sizeLimit ||
-            $this->toBytes(ini_get('upload_max_filesize')) < $this->sizeLimit) {
+        if ($this->toBytes($this->iniGet('post_max_size')) < $this->sizeLimit ||
+            $this->toBytes($this->iniGet('upload_max_filesize')) < $this->sizeLimit) {
             $size = max(1, $this->sizeLimit / 1024 / 1024) . 'M';
             return array('error' => "Server error. Increase post_max_size and upload_max_filesize to " . $size);
         }
@@ -106,11 +82,7 @@ class FineUploader
             return array('error' => "Server error. Uploads directory isn't writable");
         }
 
-        $type = $_SERVER['CONTENT_TYPE'];
-        if (isset($_SERVER['HTTP_CONTENT_TYPE'])) {
-            $type = $_SERVER['HTTP_CONTENT_TYPE'];
-        }
-
+        $type = isset($_SERVER['HTTP_CONTENT_TYPE']) ? $_SERVER['HTTP_CONTENT_TYPE'] : $_SERVER['CONTENT_TYPE'];
         if (!isset($type)) {
             return array('error' => "No files were uploaded.");
         } else if (strpos(strtolower($type), 'multipart/') !== 0) {
@@ -170,6 +142,35 @@ class FineUploader
 
             $target = $targetFolder . '/' . $partIndex;
             $success = move_uploaded_file($_FILES[$this->inputName]['tmp_name'], $target);
+
+            // Last chunk saved successfully
+            if ($success AND ($totalParts - 1 == $partIndex)) {
+                $target = join(DIRECTORY_SEPARATOR, array($uploadDirectory, $uuid, $name));
+                //$target = $this->getUniqueTargetPath($uploadDirectory, $name);
+                $this->uploadName = $uuid . DIRECTORY_SEPARATOR . $name;
+
+                if (!file_exists($target)) {
+                    mkdir(dirname($target));
+                }
+                $target = fopen($target, 'wb');
+
+                for ($i = 0; $i < $totalParts; $i++) {
+                    $chunk = fopen($targetFolder . DIRECTORY_SEPARATOR . $i, "rb");
+                    stream_copy_to_stream($chunk, $target);
+                    fclose($chunk);
+                }
+
+                // Success
+                fclose($target);
+
+                for ($i = 0; $i < $totalParts; $i++) {
+                    unlink($targetFolder . DIRECTORY_SEPARATOR . $i);
+                }
+
+                rmdir($targetFolder);
+
+                return array("success" => $success, "uuid" => $uuid);
+            }
 
             return array("success" => $success, "uuid" => $uuid);
 
@@ -355,10 +356,30 @@ class FineUploader
      *
      * @return boolean
      */
-
     protected function isWindows()
     {
         $isWin = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
         return $isWin;
+    }
+
+    /**
+     * @param $directive
+     * @return mixed|string
+     * @throws \Exception
+     */
+    private function iniGet($directive)
+    {
+        $val = ini_get($directive);
+
+        if ($val !== false) {
+            return $val;
+        }
+
+        $const = sprintf('DEFAULT_%s', strtoupper($directive));
+        if (defined('self::' . $const)) {
+            return constant('self::' . $const);
+        }
+
+        throw new \Exception('No valid ini values were found.');
     }
 }
