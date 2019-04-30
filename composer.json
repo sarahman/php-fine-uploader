@@ -1,0 +1,23 @@
+{
+    "name": "sarahman/php-fine-uploader",
+    "description": "This package is meant for using the `fine-uploader` javascript plugin's server-side script.",
+    "authors": [
+        {
+            "name": "Syed Abidur Rahman",
+            "email": "aabid048@gmail.com"
+        }
+    ],
+    "type": "library",
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "license": "MIT",
+    "require": {
+        "php": ">=5.4.0",
+        "ext-sysvsem": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Sarahman\\Utilities\\": "src"
+        }
+    }
+}
